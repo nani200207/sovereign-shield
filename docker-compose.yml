@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  sovereign-shield:
+    build: .
+    ports:
+      - "8000:8000"
+      - "8502:8502"
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - DATABASE_URL=postgresql://sovereign_user:securepassword@db:5432/sovereign_db
+    depends_on:
+      - db
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=sovereign_user
+      - POSTGRES_PASSWORD=securepassword
+      - POSTGRES_DB=sovereign_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
