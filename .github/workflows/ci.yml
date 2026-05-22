@@ -12,4 +12,9 @@ jobs:
           python-version: "3.11"
       - run: pip install -r requirements.txt
       - run: python -m spacy download sv_core_news_sm
-      - run: pytest tests/ -v
+      - name: Run Tests
+        env:
+          GEMINI_API_KEY: dummy_key
+          ABUSEIPDB_API_KEY: dummy_key
+          JWT_SECRET: dummy_secret
+        run: python -m pytest tests/ -v
