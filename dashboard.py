@@ -3,6 +3,10 @@ import requests
 import pandas as pd
 import plotly.express as px
 from reportlab.pdfgen import canvas
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib import colors
 import io
 import datetime
 import base64
@@ -124,20 +128,47 @@ with st.sidebar:
 
     def generate_pdf():
         buffer = io.BytesIO()
-        c = canvas.Canvas(buffer)
-        c.setFont("Helvetica-Bold", 16)
-        c.drawString(100, 800, "Sovereign-Shield EU Compliance Report 🇸🇪")
-        c.setFont("Helvetica", 12)
-        c.drawString(100, 770, f"Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        c.drawString(100, 740, f"Total Audits Logged: {total_requests}")
-        c.drawString(100, 720, f"GDPR Redactions (spaCy NER): {redacted_pii}")
-        c.drawString(100, 700, f"MITRE ATT&CK Threats Blocked: {blocked_requests}")
-        c.drawString(100, 680, f"NIS2 Infrastructure Score: {nis2_score}%")
+        doc = SimpleDocTemplate(buffer, pagesize=letter)
+        elements = []
+        styles = getSampleStyleSheet()
         
-        c.drawString(100, 640, "Status: Enterprise Multi-Tenant Mode ACTIVE")
-        c.drawString(100, 620, "Regulatory Alignment: GDPR, NIS2, EU AI Act")
-        c.showPage()
-        c.save()
+        # Title
+        elements.append(Paragraph("<b>Sovereign-Shield EU Compliance Report 🇸🇪</b>", styles['Title']))
+        elements.append(Spacer(1, 12))
+        elements.append(Paragraph(f"<b>Generated:</b> {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
+        elements.append(Spacer(1, 12))
+        
+        # Calculate per-tenant stats
+        tenant_stats = {}
+        for row in audit_data:
+            tid = row.get('tenant_id', 'Unknown')
+            if tid not in tenant_stats:
+                tenant_stats[tid] = {'requests': 0, 'blocked': 0, 'pii': 0}
+            tenant_stats[tid]['requests'] += 1
+            if row.get('blocked') == 1:
+                tenant_stats[tid]['blocked'] += 1
+            tenant_stats[tid]['pii'] += row.get('redacted_pii_count', 0)
+            
+        data = [['Tenant ID', 'Total Requests', 'Blocked Threats', 'PII Redacted']]
+        for tid, stats in tenant_stats.items():
+            data.append([tid, str(stats['requests']), str(stats['blocked']), str(stats['pii'])])
+            
+        if not tenant_stats:
+            data.append(['No Data', '0', '0', '0'])
+            
+        t = Table(data, colWidths=[150, 100, 100, 100])
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#0284c7")),
+            ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+            ('BOTTOMPADDING', (0,0), (-1,0), 12),
+            ('BACKGROUND', (0,1), (-1,-1), colors.beige),
+            ('GRID', (0,0), (-1,-1), 1, colors.black)
+        ]))
+        elements.append(t)
+        
+        doc.build(elements)
         buffer.seek(0)
         return buffer
 
@@ -149,33 +180,25 @@ with st.sidebar:
         mime="application/pdf",
         use_container_width=True
     )
-    
-    st.markdown("""
-    <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 14px; margin-top: 24px;">
-        <span style="font-size: 24px;">🇸🇪</span>
-        <div style="font-weight: 800; color: #15803d; margin-top: 6px; font-size: 13px;">SWEDISH DATA SOVEREIGNTY</div>
-        <div style="color: #166534; font-size: 12px; margin-top: 4px;">Fully optimized for EU AI Act, NIS2, and GDPR regulations.</div>
-    </div>
-    """, unsafe_allow_html=True)
 
 tab1, tab2, tab3 = st.tabs(["🚀 Live Security Sandbox", "📈 Real-Time Dashboards", "📝 Cryptographic Audit Logs"])
 
 with tab1:
-    st.subheader("🧪 Enterprise Security Sandbox (spaCy + Regex)")
+    st.subheader("🧪 Enterprise Security Sandbox")
+    model_choice = st.selectbox("Gemini Model", ["flash", "pro"])
     user_prompt = st.text_area("User Prompt Input", placeholder="Try writing a prompt injection or a Swedish Personnummer...", height=120)
     
     if st.button("🛡️ Submit Securely"):
         if user_prompt.strip():
-            with st.spinner("Processing through Sovereign-Shield Enterprise Engine..."):
+            with st.spinner(f"Processing through Sovereign-Shield Engine (Model: {model_choice})..."):
                 try:
-                    payload = {"prompt": user_prompt}
+                    payload = {"prompt": user_prompt, "model": model_choice}
                     res = requests.post(GATEWAY_URL, json=payload, headers={"X-API-Key": "tenant_default"}, timeout=20)
                     res.raise_for_status()
                     data = res.json()
                     
                     if data.get("blocked"):
                         st.error(data.get("response"))
-                        # Play Alert Sound using HTML audio
                         alert_html = """
                             <audio autoplay>
                                 <source src="https://www.soundjay.com/buttons/sounds/beep-07a.mp3" type="audio/mpeg">
@@ -183,7 +206,7 @@ with tab1:
                         """
                         st.markdown(alert_html, unsafe_allow_html=True)
                     else:
-                        st.success("✅ Transaction Secured. AI Act & GDPR compliant.")
+                        st.success(f"✅ Transaction Secured. (Latency: {data.get('latency_ms')} ms)")
                         col1, col2 = st.columns(2)
                         with col1:
                             st.info("📤 **Scrubbed Prompt Sent**")
@@ -216,6 +239,11 @@ with tab2:
             fig2 = px.pie(df, names="risk_level", title="EU AI Act Risk Classification Distribution")
             fig2.update_layout(paper_bgcolor=bg_color, font_color=text_color)
             st.plotly_chart(fig2, use_container_width=True)
+            
+        if 'latency_ms' in df.columns and not df['latency_ms'].isnull().all():
+            fig3 = px.line(df.sort_values("timestamp"), x="timestamp", y="latency_ms", title="Response Latency Over Time (ms)")
+            fig3.update_layout(paper_bgcolor=bg_color, plot_bgcolor=card_bg, font_color=text_color)
+            st.plotly_chart(fig3, use_container_width=True)
     else:
         st.info("No data yet to visualize.")
 
@@ -223,5 +251,4 @@ with tab3:
     st.subheader("📜 Cryptographically Signed Audit Trail")
     if audit_data:
         df = pd.DataFrame(audit_data)
-        # Display as clean interactive table
         st.dataframe(df, use_container_width=True)
